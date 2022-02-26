@@ -23,6 +23,11 @@
             },
             "type": "shell",
             "command": "clear && npx hardhat test "
+        },
+        {
+            "label": "deploy OpeanSpeak2.sol",
+            "type": "shell",
+            "command": "clear && npx hardhat run .\\scripts\\deploy.js --network polygon"
         }
     ]
 }
