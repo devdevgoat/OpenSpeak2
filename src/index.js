@@ -1,6 +1,7 @@
 'use strict'
 
-const IPFS = require('ipfs-core')
+const { poll } = require('ethers/lib/utils')
+// const IPFS = require('ipfs-core')
 const isIPFS = require('is-ipfs')
 const { givenProvider } = require('web3')
 const Web3 = require('web3')
@@ -10,16 +11,19 @@ const abi = require("./abi.json")
 const contractAddress = '0x01953a75f92f694872B6b6C0bE51AeFA08270797'
 const web3 = new Web3(givenProvider)
 // const web3 = new Web3("wss://ws-matic-mainnet.chainstacklabs.com")
-let ipfs
 var hasAlert = false
-var lastBlockLogged = 25371843
+var contractGenisisBlock = 25322001
+var blockDeltaMax = 900
+var oldestBlockQueried = -1
+var numberOfBlockBatchesToRun = 10
 
 const DOM = {
     speak: () => document.getElementById('speak'),
     words: () => document.getElementById('words'),
     feed: () =>document.getElementById('feed'),
-    refresh: () => document.getElementById('refreshBtn'),
-    register: () => document.getElementById('register'),
+    sendToVoid: () => document.getElementById('sendToVoid'),
+    // refresh: () => document.getElementById('refreshBtn'),
+    // register: () => document.getElementById('register'),
     error: () => document.getElementById('error'),
 }
 
@@ -47,7 +51,6 @@ const alert = async (msg) => {
     popup.toggle()
     hasAlert= true
 }
-
   const hideAlert = async () => {
     let el = DOM.error()
     el.innerText = ''
@@ -56,108 +59,31 @@ const alert = async (msg) => {
     hasAlert = false
 }
 
-// IPFS FUNCTIONS
-const hasIpfsNode = async () => {
-    if(ifps) return true
-    try {
-        
-        return true
-    } catch (e) {
-        alert(`Failed to start IPFS Node. ${e.message}`)
-        return false
-    }
-    
-}
-
-const uploadAndGetCID = async (content) => {
-    if (!ipfs) {
-        // creat ipfs node
-        ipfs = await IPFS.create({
-          repo: String(Math.random() + Date.now()),
-          init: { alogorithm: 'ed25519' }
-        })
-      }
-
-      // connect to ipfs node
-      const id = await ipfs.id()
-      // build obj
-      const fileToAdd = {
-        content: Buffer.from(content)
-      }
-
-      //add file
-      const file = await ipfs.add(fileToAdd)
-
-      //retrieve file and read
-      // const text = await cat(file.cid)
-
-      console.log("Added File:")
-      console.log(file.cid)
-      console.log(`Preview: https://ipfs.io/ipfs/${file.cid}`)
-      return `${file.cid}`
-}
-
-const catIPFSFileByCid = async (cid) => {
-    if (!ipfs) {
-        console.log("Creating ipfs node")
-        ipfs = await IPFS.create({
-            repo: String(Math.random() + Date.now()),
-            init: { alogorithm: 'ed25519' }
-        })
-    }
-    const content = []
-    console.log(`Trying to read out file ${cid}`)
-    for await (const chunk of ipfs.cat(cid)) {
-        content.push(chunk)
-    }
-    return content
-  }
-
 // FEED UI
-const populateFeed = async () => {
-    // if(!await isRegistered()) return
-    try {
-      if (hasAlert) hideAlert()
-      var addressesToGetPostsOf = [defaultAccount]
-      // console.log("got followers... or lack there of")
-      for (let _address in addressesToGetPostsOf){
-          console.log("Getting post from address ",addressesToGetPostsOf[_address])
-          await getPostsOfUserAndPrependToFeed(addressesToGetPostsOf[_address])
-      }
-    } catch (err) {
-      console.log(err)
-      alert(err)
-    }
-}
 
-const getPostsOfUserAndPrependToFeed = async (event) => {
-        console.log("Trying to build entry from:")
-        console.log(event.returnValues);
+
+const getPostsOfUserAndPrependToFeed = async (event,appendTrueFalse) => {
         var said = event.returnValues.said; // need to validate is a CID
         var fromAddress = event.returnValues.user //need to validat is an address web3.utils.isAddress(address)
-        if(isIPFS.cid(said)){
-            if (!document.body.contains(document.getElementById(said))){
-                var div = await getFeedEntry(fromAddress,said);
-                feed.prepend(div);
-            }
-        } else {
-            console.log(`Some moron posted '${said}' instead of an actual CID...Lets let it through as post content i guess.`)
-            var div = await constructFeedEntry(fromAddress,event.id, null, said)
-            feed.prepend(div);
+        var fromProfile = await getUserProfile(fromAddress)
+        var ts = await getTimeByBlock(event.blockNumber)
+        var div = await buildFeedDiv(fromProfile._address,event.id,fromProfile.imgCid, said, ts)
+        if (!document.body.contains(document.getElementById(event.id))){
+            if(appendTrueFalse) feed.append(div)
+                else feed.prepend(div)
         }
-        
   }
 
-  const getFeedEntry = async (account, cid, imgCid) => {
-    var content = await catIPFSFileByCid(cid);
-    var img = `https://ipfs.io/ipfs/${window.userProfile.img}`
-    console.log(img)
-    return await constructFeedEntry(account,cid, img, content)
+const getTimeByBlock = async(blockNumber) => {
+    const blockData = await web3.eth.getBlock(blockNumber)
+    var date = new Date(blockData.timestamp * 1000);
+    return date
 }
 
-  const constructFeedEntry = async (from, cid, img, content) => {
+const buildFeedDiv = async (from, cid, img, content, ts) => {
     var box = document.createElement("div");
     box.setAttribute("id", cid);
+    if(isIPFS.cid(img)) img = `https://mainnet.cutymals.com/api/Ipfs/${img}?X-API-KEY=ILoveCutyMals`
     box.classList.add("bg-white");
     box.classList.add("border");
     box.classList.add("mt-2");
@@ -166,7 +92,8 @@ const getPostsOfUserAndPrependToFeed = async (event) => {
               <div class="d-flex flex-row align-items-center feed-text px-2">
                   <img class="rounded-circle" src="${img}" width="45">
                   <div class="d-flex flex-column flex-wrap ml-2"><span class="font-weight-bold">
-                      ${from}</span><span class="text-black-50 time">40 minutes ago</span>
+                      <a href="?user=${from}">${from}</a>
+                      </span><span class="text-black-50 time">${ts}</span>
                   </div>
               </div>
               <div class="feed-icon px-2"><i class="fa fa-ellipsis-v text-black-50"></i></div>
@@ -177,21 +104,13 @@ const getPostsOfUserAndPrependToFeed = async (event) => {
   return box;
 }
 
-// EVENT LISTNERS
-DOM.refresh().onclick = async (e) => {
-    //prevent page refresh
-    e.preventDefault()
-    populateFeed()
-  }
-DOM.speak().onsubmit = async (e) => {
+const submitSpeechViaLog = async (e) => {
     //prevent page refresh
     e.preventDefault()
     // let name = DOM.fileName().value
     let content = DOM.words().value
     DOM.words().value = ""
-    window.cid = await uploadAndGetCID(content)
-    window.lastPost = await window.contract.methods.say(window.cid,"");
-    // createEventEntry("Submitting transaction...")
+    window.lastPost = await window.contract.methods.say(content,"");
     console.log('Submitting transaction...');
     window.lastPost.send(
         {
@@ -200,70 +119,138 @@ DOM.speak().onsubmit = async (e) => {
         })
     .then(function(receipt){
         console.log(receipt);
+        // pollLogs();
         // createEventEntry(`Transaction Complete! ${receipt.transactionHash}`);
+    }).catch((err) => {
+        alert(err.message)
     });
-  }
+}
 
-const subscribe = async () => {
-    console.log("trying to subscribe...")
-    let options = {
-        fromBlock: 0,
-        address: [contractAddress],    //Only get events from specific addresses
-        topics: []                              //What topics to subscribe to
-    }
-    
-    let subscription = web3.eth.subscribe('logs', options,(err,event) => {
-        if (!err)
-        console.log(event)
-        else console.log(err)
+const getLogs = async () => {
+    var sub = await web3.eth.subscribe('logs', {address:"0xEd8F31bDd8788D54c3b573FC9eCF2ae04c26090B"},(err,event) => {
+        if (err) console.log(err)
+        else console.log(event)
     })
-    
-    subscription.on('data', event => {
-        console.log('Got some data')
-        console.log(event)
-        getPostsOfUserAndPrependToFeed(event)
+
+    sub.on("connected",(subid) => {
+        console.log(`Connected with subid ${subid}`)
     })
-    subscription.on('data', nr => {
-        console.log('Connected')
-        console.log(nr)
+
+    sub.on("data", (log) => {
+        console.log(`Got data with log ${log}`)
     })
 }
 
+const getLogsFromBlockToBlock = async (fromBlock,toBlock,appendTrueFalse,_filter=false) => {
+    console.log(_filter)
+    await window.contract.getPastEvents('allEvents', {
+        topics: _filter ? [,_filter] : [], // Using an array means OR: e.g. 20 or 23
+        fromBlock: fromBlock, //await web3.eth.getBlockNumber() - 3000,
+        toBlock: toBlock
+    }, function(error, events){ 
+        if(error) alert(error.message)
+        if (events){
+            if (events.length >0) {
+                console.log(events)
+                events.forEach(emmitted => {
+                    // console.log(`checking ${emmitted.event}...`)
+                    if (emmitted.event === "publicSpeech") {
+                        getPostsOfUserAndPrependToFeed(emmitted,appendTrueFalse)
+                    }
+                    if (emmitted.event === "newUserJoinedTheParty") {
+                        // console.log("new user!")
+                    }
+                })}
+        }
+    })
+}
+
+const getMoreLogs = async (_filter) => {
+    console.log(oldestBlockQueried , contractGenisisBlock)
+    if (oldestBlockQueried >= contractGenisisBlock){
+        console.log(oldestBlockQueried, contractGenisisBlock)
+        for (let blockGroupsQueried = 0; blockGroupsQueried<=numberOfBlockBatchesToRun; blockGroupsQueried++){
+            let fromBlock = oldestBlockQueried - blockDeltaMax
+            console.log(`Loading logs from block ${fromBlock} to block ${oldestBlockQueried}`)
+            await getLogsFromBlockToBlock(fromBlock,oldestBlockQueried,true,_filter)
+            oldestBlockQueried = fromBlock
+        }
+    } else {
+        console.log("got all blocks since contract geneisis")
+    }
+}
+window.Int = 0
+const pollLogs = async (_filter) => {
+    window.setInterval(async function(){
+        window.currentBlock = await web3.eth.getBlockNumber()
+        if (window.currentBlock != window.latestBlock ){
+            console.log(`Checking for new blocks ${window.latestBlock} to block ${window.currentBlock}`)
+            await getLogsFromBlockToBlock(window.latestBlock,window.currentBlock,false,_filter)
+            window.currentBlock = window.latestBlock
+        }
+    }, 5000);
+}
+
+// EVENT LISTNERS
+DOM.speak().onsubmit = async (e) => submitSpeechViaLog(e)
+DOM.sendToVoid().onclick = async (e) => submitSpeechViaLog(e)
+
+
   // MAIN Loop
 
-  if (ethEnabled) {
-    // get friends
-    console.log("we have eth!");
+  /*
+    - need to poll backwards a few block at the start, then wait until 'load more' is pressed. ending at the contract genisis
+    - also, need to poll periodically for new block moving forward
+  */
+
+const connectToBlockchain = async () => {
     window.ethereum.request({method: 'eth_requestAccounts'}).then(async (acts) => {
         window.defaultAccount = acts[0];
         Contract.setProvider(window.ethereum);
-        // window.contract = new Contract(artifact.abi, contractAddress);
         window.contract = new Contract(abi, contractAddress);
-        let latest = await web3.eth.getBlockNumber()
-        console.log("loading feed");
-        //sync blocks from delta
-        while (lastBlockLogged<latest) {
-            window.contract.getPastEvents('allEvents', {
-                // filter: {}, // Using an array means OR: e.g. 20 or 23
-                fromBlock: lastBlockLogged, //await web3.eth.getBlockNumber() - 3000,
-                toBlock: lastBlockLogged += 3499
-            }, function(error, events){ 
-                if(error) alert(error.message)
-                lastBlockLogged += 3499
-                events.forEach(emmitted => {
-                    console.log(`checking ${emmitted.event}...`)
-                    if (emmitted.event === "publicSpeech") {
-                        getPostsOfUserAndPrependToFeed(emmitted)
-                    }
-                    if (emmitted.event === "newUserJoinedTheParty") {
-                        console.log("new user!")
-                    }
-                })
-                console.log(events)
-            })
-        }
-        console.log("Up to date, ready to switch to subscriptions")
-        subscribe()
+        window.user = await getUserProfile(window.defaultAccount)
     });
-  
-  }
+}
+
+const getUserProfile = async (_address) => {
+    //getProfileOfUser
+    return await window.contract.methods.getProfileOfUser(_address).call({from:window.defaultAccount});
+}
+
+const main = async () => {
+    if (ethEnabled) {
+    
+        const queryString = window.location.search;
+        await connectToBlockchain()
+        console.log("connected...")
+        window.latestBlock = oldestBlockQueried = await web3.eth.getBlockNumber()
+        let filter = {}
+        // home page
+        if(queryString==0){
+            console.log(`Welome home!`)
+            getMoreLogs()
+            pollLogs()
+        } else {
+            const urlParams = new URLSearchParams(queryString);
+            // some other users profile page
+            if( urlParams.has('user')){
+                console.log(`You're trying to view profile ${urlParams.get('user')}`)
+                filter = urlParams.get('user').substring(2,).padStart(64,0).padStart(66,'0x')
+                // filter = { "said": "lets see if my polling pays off now!" }
+                getMoreLogs(filter)
+                pollLogs(filter)
+            }
+            // this users page
+            if( urlParams.has('profile')){
+                console.log(`lets get your profile loaded up!`)
+                // just load the users info
+                console.log('gotta go query the directory!')
+            }
+        }
+    
+    } else {
+        alert('Please reload page with a Web3 capabable browser (Brave, chrome, etc) and wallet (metamask, frame, etc).')
+    } 
+}
+
+main()

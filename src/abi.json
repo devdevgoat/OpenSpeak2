@@ -8,7 +8,7 @@
 		"anonymous": false,
 		"inputs": [
 			{
-				"indexed": false,
+				"indexed": true,
 				"internalType": "address",
 				"name": "user",
 				"type": "address"
@@ -27,7 +27,7 @@
 		"anonymous": false,
 		"inputs": [
 			{
-				"indexed": false,
+				"indexed": true,
 				"internalType": "address",
 				"name": "user",
 				"type": "address"
@@ -46,7 +46,7 @@
 		"anonymous": false,
 		"inputs": [
 			{
-				"indexed": false,
+				"indexed": true,
 				"internalType": "address",
 				"name": "user",
 				"type": "address"
@@ -59,7 +59,7 @@
 		"anonymous": false,
 		"inputs": [
 			{
-				"indexed": false,
+				"indexed": true,
 				"internalType": "address",
 				"name": "user",
 				"type": "address"
@@ -71,7 +71,7 @@
 				"type": "string"
 			},
 			{
-				"indexed": false,
+				"indexed": true,
 				"internalType": "string",
 				"name": "replyingTo",
 				"type": "string"

@@ -30,10 +30,10 @@ contract OpenSpeak2 {
 
     mapping (address=>Profile) public users;
 
-    event publicSpeech(address user, string said, string replyingTo);
-    event newUserJoinedTheParty(address user);
-    event newAboutBlurb(address user, string about);
-    event newProfileImg(address user, string cid);
+    event publicSpeech(address indexed user, string said, string indexed replyingTo);
+    event newUserJoinedTheParty(address indexed user);
+    event newAboutBlurb(address indexed user, string about);
+    event newProfileImg(address indexed user, string cid);
 
     function say(string calldata _cid, string calldata _inReplyToCid) public {
         getOrMakeProfile();
